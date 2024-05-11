@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>evm-offline-sign</title>
+
+<script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
+<script src="https://cdn.staticfile.org/jquery/1.12.4/jquery.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsqr/dist/jsQR.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcode-js-package@1.0.4/qrcode.min.js"></script>
+
+
+  <!--<script src="jquery.min.js"></script>-->
+  <!--  <script src="https://cdn.jsdelivr.net/npm/jsqr/dist/jsQR.js"></script>-->
+  <!--<script src="qrcode.min.js"></script>-->
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 5px;
+       padding: 0;
+    }
+
+    h1 {
+      text-align: center;
+    }
+
+    .ethForm {
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 5px;
+      margin-bottom:10px;
+    }
+
+    label {
+      display: block;
+      margin-bottom:2px;
+      color: #555;
+    }
+    label span{color:#999999;font-size: 12px;}
+    label i{color: #ff0000;margin-right: 5px;}
+    input,
+    textarea {
+      width: 100%;
+      padding:5px;
+      margin-bottom: 10px;
+      box-sizing: border-box;
+      border: 1px solid #ccc;
+      font-size: 12px;
+      color: #222222;
+      border-radius: 0;
+    }
+
+    button {
+      background-color: #118515;
+      color: white;
+      padding: 10px;
+      border: none;
+      cursor: pointer;
+      margin-bottom: 10px;
+      font-size: 14px;
+    }
+
+
+    #ethSignedTx{  word-break: break-word; font-size: 13px;padding: 5px;}
+    #ethSignedTx_QR{text-align: center;margin: auto;}
+    #new_key,#output{word-break: break-word;font-size: 13px;}
+
+    #video-container {
+        width: 100%;
+        max-width: 600px;
+        margin: 0 auto;
+        text-align: center;
+    }
+    #video {
+        width: 100%;
+        height: auto;
+    }
+    #output {
+        margin-top: 20px;}
+
+    #output_msg{color:#ff0000}
+  </style>
+</head>
+
+<body>
+<div id="video-container" style="display:none;">
+  <video id="video" playsinline></video>
+</div>
+  <div class="ethForm">
+    <div>粘贴需要签名的交易信息：<span id="output_msg"></span></div>
+    <div id="output"><textarea id="sendmsg" rows="4" cols="50"></textarea></div>
+    <button id="importInfo">导入</button>
+    <button id="btn-start-scan">扫描TP钱包二维码自动导入</button>
+    
+    <label for="ethPrivateKey"><i>**</i>Private key or mnemonic phrase:<a href="javascript:void(0)" onclick="toggleVisibility()">show/hide</a></label>
+    <textarea id="ethPrivateKey" rows="3"></textarea>
+
+    <label for="ethToAddress"><i>*</i>To Address:</label>
+    <input type="text" id="ethToAddress" value="">
+
+    <label for="ethAmount"><i>*</i>Eth:</label>
+    <input type="text" id="ethAmount" value="0">
+
+    <label for="ethGasPrice"><i>*</i>Gas Price (Gwei):</label>
+    <input type="text" id="ethGasPrice" value="">
+
+    <label for="ethGasLimit"><i>*</i>Gas Limit:</label>
+    <input type="text" id="ethGasLimit" value="">
+
+    <label for="ethNonce"><i>*</i>Nonce:</label>
+    <input type="text" id="ethNonce" value="">
+
+    <label for="ethChainId"><i>*</i>Chain ID:</label>
+    <input type="text" id="ethChainId" value="">
+
+    <label for="ethData">DATA: </label>
+    <textarea id="ethData" rows="4" cols="50"></textarea>
+
+    <button type="button" onclick="signEthTransaction()">生成签名Hash</button> 
+    <button type="button" onclick="creat_Key()">随机生成助记词/私钥</button>
+    
+    <div id="ethSignedTx"></div>
+    <div id="ethSignedTx_QR"></div>
+
+
+    
+
+  </div>
+    <script>
+function toggleVisibility() {
+    var inputField = $('#ethPrivateKey');
+    if (inputField.is(':hidden')) {
+        inputField.show();
+    } else {
+        inputField.hide();
+    }
+}
+var qrcode = new QRCode('ethSignedTx_QR', {
+            colorDark: '#000000',
+            colorLight: '#ffffff',
+            correctLevel: QRCode.CorrectLevel.M //二维码有4个纠错级别（L、M、Q、H）
+        });
+
+const signEthTransaction = async () => {
+  
+  if(!$('#ethToAddress').val()){
+      $('#ethSignedTx').text('交易信息未导入');
+      return;
+  }
+  if(!$('#ethPrivateKey').val()){
+      $('#ethSignedTx').text('助记词未填写');
+      return;
+  }
+      const privateKey = document.getElementById('ethPrivateKey').value;
+      const toAddress = document.getElementById('ethToAddress').value;
+      const valueInEther = document.getElementById('ethAmount').value;
+      const gasPriceInGwei = document.getElementById('ethGasPrice').value;
+      const gasLimit = parseInt(document.getElementById('ethGasLimit').value, 10); 
+      const nonce = parseInt(document.getElementById('ethNonce').value, 10);
+      const chainId = parseInt(document.getElementById('ethChainId').value, 10);
+
+      const ethData = document.getElementById('ethData').value;
+
+      let wallet
+      if(privateKey.length===64 || privateKey.length===66){
+        wallet = new ethers.Wallet(privateKey);
+      }else{
+        wallet = ethers.Wallet.fromMnemonic(privateKey);
+      }
+      
+    // 构造 ERC-20 转账交易
+    const transaction = {
+      to: toAddress,
+      value: ethers.utils.parseEther(valueInEther),
+      gasPrice: ethers.utils.parseUnits(gasPriceInGwei, 'gwei'),
+      gasLimit: gasLimit,
+      nonce: nonce,
+      data: ethData,
+      chainId: chainId,
+    };
+  // 创建 signer 对象，即使没有连接到网络也可以这样做
+  const signer = wallet.connect(null);
+  // 使用 signer.sign 签署交易
+  // const signedTx = await signer.signTransaction(transaction);
+  // document.getElementById('ethSignedTx').innerHTML = signedTx;
+  signer.signTransaction(transaction).then((signedTx) => {
+      $('#ethSignedTx').text(signedTx);
+      qrcode.clear();
+      qrcode.makeCode(signedTx);
+  })
+
+}
+
+// 将十六进制值转换为十进制
+function hexToDecimal(hexValue) {
+    return parseInt(hexValue, 16);
+}
+
+$("#importInfo").click(function(){
+  var scanvalue=$('#sendmsg').val();
+  scan_success(scanvalue)
+});
+
+function scan_success(scanvalue){
+    scanvalue=JSON.parse(scanvalue)
+  // 填写文本框
+  $('#ethToAddress').val(scanvalue.sign.to)
+  $('#ethGasPrice').val(hexToDecimal(scanvalue.sign.gasPrice).toString())
+  $('#ethGasLimit').val(hexToDecimal(scanvalue.sign.gasLimit).toString())
+  $('#ethNonce').val(hexToDecimal(scanvalue.sign.nonce).toString())
+  $('#ethChainId').val(scanvalue.sign.chainId.toString())
+  $('#ethData').val(scanvalue.sign.data.toString())
+
+  if(!scanvalue.sign.to){
+      $('#output_msg').text('导入失败');
+  }else{
+      $('#output_msg').text('导入成功');
+  }
+  
+}
+
+
+    const video = document.getElementById('video');
+    const outputContainer = document.getElementById('output');
+    const startScanButton = document.getElementById('btn-start-scan');
+
+
+    let isScanning = false;
+    let stream = null;
+
+    startScanButton.addEventListener('click', () => {
+        if (!isScanning) {
+            startScan();
+        } else {
+            stopScan();
+        }
+    });
+
+    function startScan() {
+      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+            navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
+            .then((videoStream) => {
+                stream = videoStream;
+                video.srcObject = stream;
+                video.play();
+                document.getElementById('video-container').style.display = 'block';
+                isScanning = true;
+                startScanButton.textContent = '停止扫描';
+                scanIntervalID = setInterval(() => {
+                    scanQRCode();
+                  }, 500);
+      
+            })
+            .catch((error) => {
+                console.error('getUserMedia error:', error);
+                $('#sendmsg').text(error);
+            });
+      } else {
+          $('#sendmsg').text('当前浏览器不支持打开摄像扫码');
+      }
+  
+
+    }
+
+    function stopScan() {
+      if (scanIntervalID) {
+        clearInterval(scanIntervalID);
+        scanIntervalID = null;
+      }
+        if (stream) {
+            const tracks = stream.getTracks();
+            tracks.forEach(track => {
+                track.stop();
+            });
+            stream = null;
+            document.getElementById('video-container').style.display = 'none';
+            isScanning = false;
+            startScanButton.textContent = '开始扫描二维码';
+        }
+    }
+
+    function scanQRCode() {
+        const canvas = document.createElement('canvas');
+        const context = canvas.getContext('2d');
+
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+
+        context.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+        const code = jsQR(imageData.data, imageData.width, imageData.height);
+        if (code) {
+            //outputContainer.innerText = code.data;
+            $('#sendmsg').val(code.data);
+            stopScan();
+            scan_success(code.data)
+        } else {
+            //outputContainer.innerText = "未识别到二维码，请重新尝试。";
+            $('#sendmsg').val('未识别到二维码，请重新尝试。');
+        }
+
+        if (isScanning) {
+            requestAnimationFrame(scanQRCode);
+        }
+    }
+
+
+
+
+
+
+
+function creat_Key() {
+    //console.log('i=',ethers.utils.randomBytes(32));
+    const mnemonic = ethers.utils.entropyToMnemonic(ethers.utils.randomBytes(16)) //32--24words
+    const hdNode = ethers.utils.HDNode.fromMnemonic(mnemonic)
+    const mnemonic24 = ethers.utils.entropyToMnemonic(ethers.utils.randomBytes(32)) //32--24words
+    const hdNode24 = ethers.utils.HDNode.fromMnemonic(mnemonic24)
+    $('#ethSignedTx').html('12 Words: '+mnemonic+'<br><br>'+hdNode.address + '<br><br>' + hdNode.privateKey+'<br>----------------------<br>24 Words: '+mnemonic24+'<br><br>'+hdNode24.address + '<br><br>' + hdNode24.privateKey);
+}
+
+    </script>
+</body>
+</html>
